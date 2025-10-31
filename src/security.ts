@@ -1,115 +1,45 @@
-import rateLimit from "express-rate-limit";
-import type { Request, Response, NextFunction } from "express";
-import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+/**
+ * security.ts — vérification OAuth avec JWKS locale
+ */
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import type { AppConfig } from "./config.js";
+import { createLocalJWKSet, jwtVerify } from "jose";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-export interface AuthenticatedRequest extends Request {
-  jwt?: JWTPayload;
-  scopes?: string[];
+//
+// 1. Charge la JWKS locale (téléchargée depuis Auth0)
+//    -> fichier jwks.json à la racine du projet.
+//
+const jwksPath = "./jwks.json";
+if (!fs.existsSync(jwksPath)) {
+  console.error("❌ JWKS introuvable :", jwksPath);
+  process.exit(1);
 }
+const jwks = JSON.parse(fs.readFileSync(jwksPath, "utf8"));
+const JWKS = createLocalJWKSet(jwks);
 
-let jwksCache: ReturnType<typeof createLocalJWKSet> | ReturnType<typeof createRemoteJWKSet> | null = null;
+//
+// 2. Variables d’environnement (avec valeurs par défaut sûres)
+//
+const ISSUER =
+  process.env.OIDC_ISSUER || "https://dev-hzreygt8mo24tins.us.auth0.com/";
+const AUDIENCE = process.env.OIDC_AUDIENCE || "https://mind-protocol";
 
-export function createRateLimiter() {
-  return rateLimit({
-    windowMs: 60 * 1000,
-    max: 60,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
-}
-
-export function validateOrigin(config: AppConfig, req: Request, res: Response, next: NextFunction) {
-  const origin = req.headers.origin;
-  if (!origin || config.allowedOrigins.length === 0 || config.allowedOrigins.includes(origin)) {
-    return next();
-  }
-  return res.status(403).json({ error: "Origin not allowed" });
-}
-
-export async function authenticate(
-  config: AppConfig,
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing bearer token" });
+//
+// 3. Middleware / helper de vérification
+//
+export async function verifyOAuthBearer(req: any) {
+  const h = req.get("authorization") || "";
+  if (!h.startsWith("Bearer ")) {
+    throw Object.assign(new Error("missing bearer"), { status: 401 });
   }
 
-  const token = header.slice("Bearer ".length).trim();
-
-  // If OAuth is not required, fallback to simple token auth
-  if (!config.requireOAuth) {
-    if (config.authToken && token === config.authToken) {
-      return next();
-    }
-    return res.status(403).json({ error: "Invalid token" });
-  }
-
-  // OAuth/JWT verification
-  if (!config.oidcIssuer || !config.oidcAudience) {
-    return res.status(500).json({ error: "OAuth not properly configured" });
-  }
+  const token = h.slice(7);
 
   try {
-    // Create JWKS client if not cached
-    if (!jwksCache) {
-      // Try to load local JWKS first
-      const localJwksPath = path.join(__dirname, "..", "jwks.json");
-      if (fs.existsSync(localJwksPath)) {
-        const jwksData = JSON.parse(fs.readFileSync(localJwksPath, "utf-8"));
-        jwksCache = createLocalJWKSet(jwksData);
-      } else if (config.oidcJwksUrl) {
-        // Fallback to remote JWKS
-        jwksCache = createRemoteJWKSet(new URL(config.oidcJwksUrl));
-      } else {
-        return res.status(500).json({ error: "No JWKS source configured" });
-      }
-    }
-
-    // Verify JWT
-    const { payload } = await jwtVerify(token, jwksCache, {
-      issuer: config.oidcIssuer,
-      audience: config.oidcAudience
-    });
-
-    // Extract scopes
-    const scope = payload.scope as string | undefined;
-    const scopes = scope ? scope.split(" ") : [];
-
-    // Attach to request
-    req.jwt = payload;
-    req.scopes = scopes;
-
-    return next();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Token verification failed";
-    return res.status(403).json({ error: "Invalid token", details: message });
+    await jwtVerify(token, JWKS, { issuer: ISSUER, audience: AUDIENCE });
+    // ✅ Token valide
+    return true;
+  } catch (err: any) {
+    console.error("❌ Invalid token:", err);
+    throw Object.assign(new Error("invalid token"), { status: 401 });
   }
-}
-
-export function requireScopes(requiredScopes: string[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!req.scopes) {
-      return res.status(401).json({ error: "No scopes found in token" });
-    }
-
-    const hasAllScopes = requiredScopes.every((scope) => req.scopes?.includes(scope));
-    if (!hasAllScopes) {
-      return res.status(403).json({
-        error: "Insufficient permissions",
-        required: requiredScopes,
-        provided: req.scopes
-      });
-    }
-
-    return next();
-  };
 }
