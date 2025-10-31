@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from "express";
 import type { Request, Response } from "express";
+import cors from "cors";
 import pino, { type Logger } from "pino";
 import { nanoid } from "nanoid";
 import { loadConfig, type AppConfig } from "./config.js";
@@ -92,16 +93,22 @@ export function createServer(options?: ServerOptions): ServerComponents {
   app.use((req, res, next) => validateOrigin(config, req, res, next));
 
   // OpenID Discovery endpoint (no auth required)
-  app.get("/.well-known/openid-configuration", (req, res) => {
+  // Enable CORS for web-based MCP clients
+  app.get("/.well-known/openid-configuration", cors(), (req, res) => {
     const base = config.publicBaseUrl || `http://localhost:${config.port}`;
     res.json({
       issuer: config.oidcIssuer,
-      token_endpoint: `${base}/oauth/token`
+      token_endpoint: `${base}/oauth/token`,
+      authorization_endpoint: `${base}/oauth/authorize`,
+      grant_types_supported: ["client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      response_types_supported: ["token"]
     });
   });
 
   // MCP metadata endpoint (no auth required - for OAuth discovery)
-  app.get("/mcp", (req, res, next) => {
+  // Enable CORS for web-based MCP clients
+  app.get("/mcp", cors(), (req, res, next) => {
     const accept = req.header("accept");
 
     // If it's an SSE request, let it pass through to the SSE handler
@@ -109,22 +116,21 @@ export function createServer(options?: ServerOptions): ServerComponents {
       return next();
     }
 
-    // Otherwise, return server metadata with OAuth config
+    // Otherwise, return OAuth metadata in standard format
     const base = config.publicBaseUrl || `http://localhost:${config.port}`;
     res.json({
-      name: "codex-mcp-gateway",
-      version: "0.1.0",
-      protocol: config.protocolVersion,
-      authentication: {
-        type: "oauth",
-        discovery: `${base}/.well-known/openid-configuration`,
-        token_endpoint: `${base}/oauth/token`
-      }
+      issuer: config.oidcIssuer,
+      token_endpoint: `${base}/oauth/token`,
+      authorization_endpoint: `${base}/oauth/authorize`,
+      grant_types_supported: ["client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      response_types_supported: ["token"]
     });
   });
 
   // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
-  app.post("/oauth/token", async (req, res) => {
+  // Enable CORS for web-based MCP clients
+  app.post("/oauth/token", cors(), async (req, res) => {
     try {
       // Accept JSON or x-www-form-urlencoded
       const {
