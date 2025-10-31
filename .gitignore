@@ -1,0 +1,11 @@
+
+# Dependencies
+node_modules/
+# Builds
+/dist/
+/.next/
+/out/
+
+# Env
+.env
+.env.*
