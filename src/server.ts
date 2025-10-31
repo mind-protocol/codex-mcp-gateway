@@ -48,23 +48,24 @@ function registerSse(app: express.Express, eventBus: EventBus) {
   });
 
   app.get("/mcp", (req, res) => {
-  const accept = req.header("accept");
-  if (accept && !accept.includes("text/event-stream")) {
-    res.status(406).send("Only text/event-stream supported");
-    return;
-  }
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  const clientId = nanoid();
-  const client: SseClient = { id: clientId, res };
-  sseClients.set(clientId, client);
-  sendSse(res, "ready", { ok: true }, clientId);
+    const accept = req.header("accept");
+    if (accept && !accept.includes("text/event-stream")) {
+      res.status(406).send("Only text/event-stream supported");
+      return;
+    }
 
-  req.on("close", () => {
-    sseClients.delete(clientId);
-  });
-});
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const clientId = nanoid();
+    const client: SseClient = { id: clientId, res };
+    sseClients.set(clientId, client);
+    sendSse(res, "ready", { ok: true }, clientId);
+
+    req.on("close", () => {
+      sseClients.delete(clientId);
+    });
   });
 
   app.get("/sse", (req, res) => {
@@ -97,48 +98,48 @@ export function createServer(options?: ServerOptions): ServerComponents {
       res.status(426).json({
         jsonrpc: "2.0",
         error: { code: -32001, message: `Unsupported protocol version ${protocolHeader}` }
-    });
-    return;
-  }
-
-  const request = req.body as JsonRpcRequest;
-  if (!request || request.jsonrpc !== "2.0" || typeof request.method !== "string") {
-    res.status(400).json({
-      jsonrpc: "2.0",
-      error: { code: -32600, message: "Invalid JSON-RPC request" }
-    });
-    return;
-  }
-
-  const sessionId = req.header("mcp-session-id");
-  const session = handler.getSession(sessionId ?? undefined);
-
-  try {
-    const { response, session: newSession } = await handler.handleRequest(session, request);
-    const effectiveSession = newSession ?? session;
-    if (effectiveSession) {
-      res.setHeader("Mcp-Session-Id", effectiveSession.id);
-    }
-
-    const accept = req.header("accept") ?? "application/json";
-    if (accept.includes("text/event-stream")) {
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      sendSse(res, "response", response, response?.id?.toString());
-      res.end();
+      });
       return;
     }
 
-    res.json(response);
-  } catch (error) {
-    logger.error({ err: error }, "Error handling MCP request");
-    res.status(500).json({
-      jsonrpc: "2.0",
-      id: request.id,
-      error: { code: -32603, message: "Internal error" }
-    });
-  }
+    const request = req.body as JsonRpcRequest;
+    if (!request || request.jsonrpc !== "2.0" || typeof request.method !== "string") {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        error: { code: -32600, message: "Invalid JSON-RPC request" }
+      });
+      return;
+    }
+
+    const sessionId = req.header("mcp-session-id");
+    const session = handler.getSession(sessionId ?? undefined);
+
+    try {
+      const { response, session: newSession } = await handler.handleRequest(session, request);
+      const effectiveSession = newSession ?? session;
+      if (effectiveSession) {
+        res.setHeader("Mcp-Session-Id", effectiveSession.id);
+      }
+
+      const accept = req.header("accept") ?? "application/json";
+      if (accept.includes("text/event-stream")) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        sendSse(res, "response", response, response?.id?.toString());
+        res.end();
+        return;
+      }
+
+      res.json(response);
+    } catch (error) {
+      logger.error({ err: error }, "Error handling MCP request");
+      res.status(500).json({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32603, message: "Internal error" }
+      });
+    }
   });
 
   app.use((err: Error, _req: Request, res: Response, _next: () => void) => {
