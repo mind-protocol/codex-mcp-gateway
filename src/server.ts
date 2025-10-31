@@ -6,7 +6,7 @@ import { loadConfig, type AppConfig } from "./config.js";
 import { EventBus } from "./events.js";
 import { GitHubClient } from "./github/client.js";
 import { McpHandler, type JsonRpcRequest } from "./mcp/handlers.js";
-import { authenticate, createRateLimiter, validateOrigin } from "./security.js";
+import { authenticate, createRateLimiter, validateOrigin, type AuthenticatedRequest } from "./security.js";
 
 interface SseClient {
   id: string;
@@ -88,11 +88,68 @@ export function createServer(options?: ServerOptions): ServerComponents {
   const handler = new McpHandler(config, github, eventBus);
 
   app.use((req, res, next) => validateOrigin(config, req, res, next));
+
+  // OpenID Discovery endpoint (no auth required)
+  app.get("/.well-known/openid-configuration", (req, res) => {
+    const base = config.publicBaseUrl || `http://localhost:${config.port}`;
+    res.json({
+      issuer: config.oidcIssuer,
+      token_endpoint: `${base}/oauth/token`
+    });
+  });
+
+  // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
+  app.post("/oauth/token", express.json(), express.urlencoded({ extended: true }), async (req, res) => {
+    try {
+      // Accept JSON or x-www-form-urlencoded
+      const {
+        client_id,
+        client_secret,
+        grant_type = "client_credentials",
+        audience = config.auth0Audience
+      } = req.body;
+
+      // Security: only allow known client
+      if (!client_id || client_id !== config.oauthAllowedClientId) {
+        return res.status(401).json({ error: "unauthorized_client" });
+      }
+      if (grant_type !== "client_credentials") {
+        return res.status(400).json({ error: "unsupported_grant_type" });
+      }
+      if (!config.auth0TokenUrl) {
+        return res.status(500).json({ error: "OAuth proxy not configured" });
+      }
+
+      // Relay to Auth0
+      const params = new URLSearchParams();
+      params.set("grant_type", "client_credentials");
+      params.set("client_id", client_id);
+      params.set("client_secret", client_secret);
+      if (audience) {
+        params.set("audience", audience);
+      }
+
+      const response = await fetch(config.auth0TokenUrl, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: params
+      });
+
+      // Return Auth0 response as-is
+      const text = await response.text();
+      res.status(response.status).type("application/json").send(text);
+    } catch (error) {
+      logger.error({ err: error }, "OAuth token proxy error");
+      res.status(500).json({ error: "server_error" });
+    }
+  });
+
+  // Apply authentication to all routes below
   app.use((req, res, next) => authenticate(config, req, res, next));
 
   registerSse(app, eventBus);
 
-  app.post("/mcp", async (req, res) => {
+  app.post("/mcp", async (req: AuthenticatedRequest, res) => {
     const protocolHeader = req.header("mcp-protocol-version");
     if (protocolHeader && protocolHeader !== config.protocolVersion) {
       res.status(426).json({
@@ -112,11 +169,21 @@ export function createServer(options?: ServerOptions): ServerComponents {
     }
 
     const sessionId = req.header("mcp-session-id");
-    const session = handler.getSession(sessionId ?? undefined);
+    let session = handler.getSession(sessionId ?? undefined);
+
+    // Attach scopes to session if OAuth is enabled
+    if (session && req.scopes && config.requireOAuth) {
+      session.scopes = req.scopes;
+    }
 
     try {
       const { response, session: newSession } = await handler.handleRequest(session, request);
       const effectiveSession = newSession ?? session;
+
+      // Attach scopes to new session
+      if (effectiveSession && req.scopes && config.requireOAuth) {
+        effectiveSession.scopes = req.scopes;
+      }
       if (effectiveSession) {
         res.setHeader("Mcp-Session-Id", effectiveSession.id);
       }
