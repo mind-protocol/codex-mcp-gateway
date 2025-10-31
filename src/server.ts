@@ -100,6 +100,29 @@ export function createServer(options?: ServerOptions): ServerComponents {
     });
   });
 
+  // MCP metadata endpoint (no auth required - for OAuth discovery)
+  app.get("/mcp", (req, res, next) => {
+    const accept = req.header("accept");
+
+    // If it's an SSE request, let it pass through to the SSE handler
+    if (accept && accept.includes("text/event-stream")) {
+      return next();
+    }
+
+    // Otherwise, return server metadata with OAuth config
+    const base = config.publicBaseUrl || `http://localhost:${config.port}`;
+    res.json({
+      name: "codex-mcp-gateway",
+      version: "0.1.0",
+      protocol: config.protocolVersion,
+      authentication: {
+        type: "oauth",
+        discovery: `${base}/.well-known/openid-configuration`,
+        token_endpoint: `${base}/oauth/token`
+      }
+    });
+  });
+
   // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
   app.post("/oauth/token", async (req, res) => {
     try {
