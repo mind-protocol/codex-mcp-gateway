@@ -100,9 +100,10 @@ export function createServer(options?: ServerOptions): ServerComponents {
       issuer: config.oidcIssuer,
       token_endpoint: `${base}/oauth/token`,
       authorization_endpoint: `${base}/oauth/authorize`,
-      grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post"],
-      response_types_supported: ["token"]
+      grant_types_supported: ["authorization_code", "client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+      response_types_supported: ["code", "token"],
+      code_challenge_methods_supported: ["S256"]
     });
   });
 
@@ -115,9 +116,10 @@ export function createServer(options?: ServerOptions): ServerComponents {
       token_endpoint: `${base}/oauth/token`,
       authorization_endpoint: `${base}/oauth/authorize`,
       jwks_uri: config.oidcJwksUrl,
-      grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post"],
-      response_types_supported: ["token"],
+      grant_types_supported: ["authorization_code", "client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+      response_types_supported: ["code", "token"],
+      code_challenge_methods_supported: ["S256"],
       scopes_supported: ["mcp.codex.launch", "mcp.pr.review", "mcp.pr.merge", "mcp.pr.gate", "mcp.validation.trigger", "mcp.tools.list", "mcp.tools.call"]
     });
   });
@@ -138,10 +140,40 @@ export function createServer(options?: ServerOptions): ServerComponents {
       issuer: config.oidcIssuer,
       token_endpoint: `${base}/oauth/token`,
       authorization_endpoint: `${base}/oauth/authorize`,
-      grant_types_supported: ["client_credentials"],
-      token_endpoint_auth_methods_supported: ["client_secret_post"],
-      response_types_supported: ["token"]
+      grant_types_supported: ["authorization_code", "client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+      response_types_supported: ["code", "token"],
+      code_challenge_methods_supported: ["S256"]
     });
+  });
+
+  // OAuth authorization endpoint proxy (no auth required)
+  // Redirects to Auth0 for Authorization Code flow
+  app.get("/oauth/authorize", cors(), (req, res) => {
+    const { client_id, redirect_uri, state, response_type, code_challenge, code_challenge_method, scope, resource } = req.query;
+
+    // Security: only allow known client
+    if (!client_id || client_id !== config.oauthAllowedClientId) {
+      return res.status(401).json({ error: "unauthorized_client" });
+    }
+
+    if (!config.auth0Domain) {
+      return res.status(500).json({ error: "OAuth proxy not configured" });
+    }
+
+    // Build Auth0 authorization URL
+    const auth0AuthUrl = new URL(`https://${config.auth0Domain}/authorize`);
+    auth0AuthUrl.searchParams.set("client_id", client_id as string);
+    auth0AuthUrl.searchParams.set("response_type", (response_type as string) || "code");
+    auth0AuthUrl.searchParams.set("redirect_uri", redirect_uri as string);
+    if (state) auth0AuthUrl.searchParams.set("state", state as string);
+    if (code_challenge) auth0AuthUrl.searchParams.set("code_challenge", code_challenge as string);
+    if (code_challenge_method) auth0AuthUrl.searchParams.set("code_challenge_method", code_challenge_method as string);
+    if (scope) auth0AuthUrl.searchParams.set("scope", scope as string);
+    if (config.auth0Audience) auth0AuthUrl.searchParams.set("audience", config.auth0Audience);
+
+    // Redirect to Auth0
+    res.redirect(auth0AuthUrl.toString());
   });
 
   // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
@@ -153,6 +185,9 @@ export function createServer(options?: ServerOptions): ServerComponents {
         client_id,
         client_secret,
         grant_type = "client_credentials",
+        code,
+        code_verifier,
+        redirect_uri,
         audience = config.auth0Audience
       } = req.body;
 
@@ -160,18 +195,35 @@ export function createServer(options?: ServerOptions): ServerComponents {
       if (!client_id || client_id !== config.oauthAllowedClientId) {
         return res.status(401).json({ error: "unauthorized_client" });
       }
-      if (grant_type !== "client_credentials") {
+
+      if (!["client_credentials", "authorization_code"].includes(grant_type)) {
         return res.status(400).json({ error: "unsupported_grant_type" });
       }
+
       if (!config.auth0TokenUrl) {
         return res.status(500).json({ error: "OAuth proxy not configured" });
       }
 
       // Relay to Auth0
       const params = new URLSearchParams();
-      params.set("grant_type", "client_credentials");
+      params.set("grant_type", grant_type);
       params.set("client_id", client_id);
-      params.set("client_secret", client_secret);
+
+      if (grant_type === "authorization_code") {
+        if (!code) {
+          return res.status(400).json({ error: "invalid_request", error_description: "Missing authorization code" });
+        }
+        params.set("code", code);
+        if (code_verifier) params.set("code_verifier", code_verifier);
+        if (redirect_uri) params.set("redirect_uri", redirect_uri);
+      } else {
+        // client_credentials
+        if (!client_secret) {
+          return res.status(400).json({ error: "invalid_request", error_description: "Missing client_secret" });
+        }
+        params.set("client_secret", client_secret);
+      }
+
       if (audience) {
         params.set("audience", audience);
       }
