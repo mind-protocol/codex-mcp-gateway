@@ -82,6 +82,7 @@ export function createServer(options?: ServerOptions): ServerComponents {
   const app = express();
 
   app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(createRateLimiter());
 
   const eventBus = new EventBus();
@@ -100,7 +101,7 @@ export function createServer(options?: ServerOptions): ServerComponents {
   });
 
   // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
-  app.post("/oauth/token", express.json(), express.urlencoded({ extended: true }), async (req, res) => {
+  app.post("/oauth/token", async (req, res) => {
     try {
       // Accept JSON or x-www-form-urlencoded
       const {

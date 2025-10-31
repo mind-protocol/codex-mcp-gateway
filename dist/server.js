@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from "express";
 import pino from "pino";
 import { nanoid } from "nanoid";
@@ -50,6 +51,7 @@ export function createServer(options) {
     const logger = pino({ level: config.logLevel });
     const app = express();
     app.use(express.json({ limit: "1mb" }));
+    app.use(express.urlencoded({ extended: true, limit: "1mb" }));
     app.use(createRateLimiter());
     const eventBus = new EventBus();
     const github = options?.githubClient ?? new GitHubClient({ config });
@@ -64,7 +66,7 @@ export function createServer(options) {
         });
     });
     // OAuth token proxy endpoint (no auth required - this IS the auth endpoint)
-    app.post("/oauth/token", express.json(), express.urlencoded({ extended: true }), async (req, res) => {
+    app.post("/oauth/token", async (req, res) => {
         try {
             // Accept JSON or x-www-form-urlencoded
             const { client_id, client_secret, grant_type = "client_credentials", audience = config.auth0Audience } = req.body;
