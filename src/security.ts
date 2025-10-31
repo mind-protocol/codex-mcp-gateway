@@ -1,14 +1,19 @@
 import rateLimit from "express-rate-limit";
 import type { Request, Response, NextFunction } from "express";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import type { AppConfig } from "./config.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface AuthenticatedRequest extends Request {
   jwt?: JWTPayload;
   scopes?: string[];
 }
 
-let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
+let jwksCache: ReturnType<typeof createLocalJWKSet> | ReturnType<typeof createRemoteJWKSet> | null = null;
 
 export function createRateLimiter() {
   return rateLimit({
@@ -49,14 +54,24 @@ export async function authenticate(
   }
 
   // OAuth/JWT verification
-  if (!config.oidcJwksUrl || !config.oidcIssuer || !config.oidcAudience) {
+  if (!config.oidcIssuer || !config.oidcAudience) {
     return res.status(500).json({ error: "OAuth not properly configured" });
   }
 
   try {
     // Create JWKS client if not cached
     if (!jwksCache) {
-      jwksCache = createRemoteJWKSet(new URL(config.oidcJwksUrl));
+      // Try to load local JWKS first
+      const localJwksPath = path.join(__dirname, "..", "jwks.json");
+      if (fs.existsSync(localJwksPath)) {
+        const jwksData = JSON.parse(fs.readFileSync(localJwksPath, "utf-8"));
+        jwksCache = createLocalJWKSet(jwksData);
+      } else if (config.oidcJwksUrl) {
+        // Fallback to remote JWKS
+        jwksCache = createRemoteJWKSet(new URL(config.oidcJwksUrl));
+      } else {
+        return res.status(500).json({ error: "No JWKS source configured" });
+      }
     }
 
     // Verify JWT

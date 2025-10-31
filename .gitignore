@@ -9,3 +9,6 @@ node_modules/
 # Env
 .env
 .env.*
+
+# JWKS (generated from Auth0)
+jwks.json
