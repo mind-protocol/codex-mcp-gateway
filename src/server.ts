@@ -106,6 +106,22 @@ export function createServer(options?: ServerOptions): ServerComponents {
     });
   });
 
+  // OAuth metadata endpoint (no auth required - MCP standard)
+  // Enable CORS for web-based MCP clients
+  app.get("/oauth/metadata", cors(), (req, res) => {
+    const base = config.publicBaseUrl || `http://localhost:${config.port}`;
+    res.json({
+      issuer: config.oidcIssuer,
+      token_endpoint: `${base}/oauth/token`,
+      authorization_endpoint: `${base}/oauth/authorize`,
+      jwks_uri: config.oidcJwksUrl,
+      grant_types_supported: ["client_credentials"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      response_types_supported: ["token"],
+      scopes_supported: ["mcp.codex.launch", "mcp.pr.review", "mcp.pr.merge", "mcp.pr.gate", "mcp.validation.trigger", "mcp.tools.list", "mcp.tools.call"]
+    });
+  });
+
   // MCP metadata endpoint (no auth required - for OAuth discovery)
   // Enable CORS for web-based MCP clients
   app.get("/mcp", cors(), (req, res, next) => {
