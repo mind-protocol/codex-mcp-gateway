@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "codex.task.accepted",
+  "type": "object",
+  "properties": {
+    "name": { "const": "codex.task.accepted" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "data": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string" },
+        "audit_url": { "type": "string", "format": "uri" }
+      },
+      "required": ["run_id", "audit_url"],
+      "additionalProperties": true
+    },
+    "correlationId": { "type": ["string", "null"] },
+    "id": { "type": "string" }
+  },
+  "required": ["name", "timestamp", "data", "id"],
+  "additionalProperties": false
+}

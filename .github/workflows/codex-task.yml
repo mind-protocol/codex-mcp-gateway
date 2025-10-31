@@ -1,0 +1,39 @@
+name: codex-task
+
+on:
+  workflow_dispatch:
+    inputs:
+      instruction:
+        description: "Prompt"
+        required: true
+      working_dir:
+        description: "Working directory"
+        required: false
+        default: ""
+      codex_args:
+        description: "Additional Codex CLI arguments"
+        required: false
+        default: ""
+      correlation_id:
+        description: "Correlation identifier"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  run-codex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Codex
+        uses: openai/codex-action@v1
+        with:
+          instruction: ${{ github.event.inputs.instruction }}
+          working-directory: ${{ github.event.inputs.working_dir }}
+          args: ${{ github.event.inputs.codex_args }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
