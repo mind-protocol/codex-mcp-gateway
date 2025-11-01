@@ -86,6 +86,28 @@ export function createServer(options?: ServerOptions): ServerComponents {
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(createRateLimiter());
 
+  // CORS preflight for MCP requests (must be before auth middleware)
+  const corsAllowedHeaders = [
+    "authorization",
+    "content-type",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "accept"
+  ];
+  app.options(
+    "/mcp",
+    cors({
+      origin: true,
+      credentials: true,
+      allowedHeaders: corsAllowedHeaders,
+      methods: ["POST"],
+      preflightContinue: false
+    }),
+    (_req, res) => {
+      res.sendStatus(204);
+    }
+  );
+
   const eventBus = new EventBus();
   const github = options?.githubClient ?? new GitHubClient({ config });
   const handler = new McpHandler(config, github, eventBus);
@@ -120,7 +142,15 @@ export function createServer(options?: ServerOptions): ServerComponents {
       token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
       response_types_supported: ["code", "token"],
       code_challenge_methods_supported: ["S256"],
-      scopes_supported: ["mcp.codex.launch", "mcp.pr.review", "mcp.pr.merge", "mcp.pr.gate", "mcp.validation.trigger", "mcp.tools.list", "mcp.tools.call"]
+      scopes_supported: [
+        "mcp.codex.launch",
+        "mcp.pr.review",
+        "mcp.pr.merge",
+        "mcp.pr.gate",
+        "mcp.validation.trigger",
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ]
     });
   });
 

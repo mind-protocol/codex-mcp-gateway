@@ -68,6 +68,19 @@ describe("MCP server", () => {
     app = expressApp;
   });
 
+  it("allows CORS preflight for MCP endpoint", async () => {
+    const response = await request(app)
+      .options("/mcp")
+      .set("Origin", "https://chatgpt.com")
+      .set("Access-Control-Request-Method", "POST")
+      .set("Access-Control-Request-Headers", "authorization, content-type, mcp-protocol-version");
+
+    expect(response.status).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+    expect(response.headers["access-control-allow-headers"]).toContain("authorization");
+  });
+
   async function initializeSession() {
     const response = await request(app)
       .post("/mcp")
