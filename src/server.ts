@@ -49,11 +49,10 @@ function registerSse(app: express.Express, eventBus: EventBus) {
     broadcastEvent({ type: "event", event });
   });
 
-  app.get("/mcp", (req, res) => {
+  app.get("/mcp", (req, res, next) => {
     const accept = req.header("accept");
-    if (accept && !accept.includes("text/event-stream")) {
-      res.status(406).send("Only text/event-stream supported");
-      return;
+    if (!accept || !accept.includes("text/event-stream")) {
+      return next();
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -94,19 +93,16 @@ export function createServer(options?: ServerOptions): ServerComponents {
     "mcp-session-id",
     "accept"
   ];
-  app.options(
-    "/mcp",
-    cors({
-      origin: true,
-      credentials: true,
-      allowedHeaders: corsAllowedHeaders,
-      methods: ["POST"],
-      preflightContinue: false
-    }),
-    (_req, res) => {
-      res.sendStatus(204);
-    }
-  );
+  const mcpCors = cors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: corsAllowedHeaders,
+    exposedHeaders: ["Mcp-Session-Id"]
+  });
+  app.options("/mcp", mcpCors, (_req, res) => {
+    res.sendStatus(204);
+  });
+  app.use("/mcp", mcpCors);
 
   const eventBus = new EventBus();
   const github = options?.githubClient ?? new GitHubClient({ config });

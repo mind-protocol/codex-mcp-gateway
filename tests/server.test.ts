@@ -51,7 +51,7 @@ describe("MCP server", () => {
   const testConfig: AppConfig = {
     port: 0,
     authToken: "test-token",
-    allowedOrigins: [],
+    allowedOrigins: ["https://chatgpt.com"],
     githubToken: "ghp_test",
     logLevel: "silent",
     protocolVersion: "2025-06-18"
@@ -84,6 +84,7 @@ describe("MCP server", () => {
   async function initializeSession() {
     const response = await request(app)
       .post("/mcp")
+      .set("Origin", "https://chatgpt.com")
       .set("Authorization", "Bearer test-token")
       .set("Content-Type", "application/json")
       .set("MCP-Protocol-Version", "2025-06-18")
@@ -104,6 +105,8 @@ describe("MCP server", () => {
     const response = await initializeSession();
     expect(response.status).toBe(200);
     expect(response.headers["mcp-session-id"]).toBeDefined();
+    expect(response.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(response.headers["access-control-expose-headers"]).toContain("Mcp-Session-Id");
     expect(response.body.result.protocolVersion).toBe("2025-06-18");
   });
 
@@ -112,6 +115,7 @@ describe("MCP server", () => {
     const sessionId = initResponse.headers["mcp-session-id"] as string;
     const response = await request(app)
       .post("/mcp")
+      .set("Origin", "https://chatgpt.com")
       .set("Authorization", "Bearer test-token")
       .set("Content-Type", "application/json")
       .set("MCP-Protocol-Version", "2025-06-18")
@@ -126,6 +130,7 @@ describe("MCP server", () => {
     const sessionId = initResponse.headers["mcp-session-id"] as string;
     const response = await request(app)
       .post("/mcp")
+      .set("Origin", "https://chatgpt.com")
       .set("Authorization", "Bearer test-token")
       .set("Content-Type", "application/json")
       .set("MCP-Protocol-Version", "2025-06-18")
@@ -147,5 +152,16 @@ describe("MCP server", () => {
     expect(response.status).toBe(200);
     expect(fakeGithub.dispatchCalls).toHaveLength(1);
     expect(response.body.result.content[0].json.run_id).toContain("openai/codex");
+  });
+
+  it("returns OAuth metadata for non-SSE MCP requests", async () => {
+    const response = await request(app)
+      .get("/mcp")
+      .set("Origin", "https://chatgpt.com")
+      .set("Accept", "application/json");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(response.body.authorization_endpoint).toContain("/oauth/authorize");
   });
 });
