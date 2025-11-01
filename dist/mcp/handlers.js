@@ -21,7 +21,6 @@ export class McpHandler {
             name: "launch_codex_task",
             title: "Launch Codex task via GitHub",
             description: "Dispatch the codex-task workflow on a repository",
-            requiredScopes: ["mcp.codex.launch"],
             inputSchema: {
                 type: "object",
                 required: ["owner", "repo", "ref", "instruction"],
@@ -48,7 +47,6 @@ export class McpHandler {
             name: "pr_review",
             title: "Submit a pull request review",
             description: "Create a review on a pull request with optional inline comments",
-            requiredScopes: ["mcp.pr.review"],
             inputSchema: {
                 type: "object",
                 required: ["owner", "repo", "number", "event"],
@@ -88,7 +86,6 @@ export class McpHandler {
             name: "pr_gate",
             title: "Evaluate pull request gate",
             description: "Gather mergeability, checks, and approvals to determine readiness",
-            requiredScopes: ["mcp.pr.gate"],
             inputSchema: {
                 type: "object",
                 required: ["owner", "repo", "number"],
@@ -123,7 +120,6 @@ export class McpHandler {
             name: "pr_merge",
             title: "Merge a pull request with gating",
             description: "Merge a PR after verifying gate status",
-            requiredScopes: ["mcp.pr.merge"],
             inputSchema: {
                 type: "object",
                 required: ["owner", "repo", "number"],
@@ -148,7 +144,6 @@ export class McpHandler {
             name: "trigger_validation",
             title: "Trigger a validation workflow",
             description: "Dispatch any workflow with optional inputs",
-            requiredScopes: ["mcp.validation.trigger"],
             inputSchema: {
                 type: "object",
                 required: ["owner", "repo", "ref", "workflow"],
@@ -301,25 +296,6 @@ export class McpHandler {
             };
         }
         const params = paramsParse.data;
-        // Check scopes if OAuth is enabled
-        const tool = this.tools.find((t) => t.name === params.name);
-        if (tool?.requiredScopes && this.config.requireOAuth) {
-            const hasAllScopes = tool.requiredScopes.every((scope) => session.scopes?.includes(scope));
-            if (!hasAllScopes) {
-                return {
-                    jsonrpc: "2.0",
-                    id: request.id,
-                    error: {
-                        code: -32003,
-                        message: "Insufficient permissions",
-                        data: {
-                            required: tool.requiredScopes,
-                            provided: session.scopes
-                        }
-                    }
-                };
-            }
-        }
         try {
             switch (params.name) {
                 case "launch_codex_task": {
