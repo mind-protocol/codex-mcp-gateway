@@ -166,6 +166,9 @@ export function createServer(options) {
                     params.set("code_verifier", code_verifier);
                 if (redirect_uri)
                     params.set("redirect_uri", redirect_uri);
+                // For confidential clients (Regular Web App), Auth0 requires client_secret even with PKCE
+                if (client_secret)
+                    params.set("client_secret", client_secret);
             }
             else {
                 // client_credentials
