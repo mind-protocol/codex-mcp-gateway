@@ -49,11 +49,10 @@ function registerSse(app: express.Express, eventBus: EventBus) {
     broadcastEvent({ type: "event", event });
   });
 
-  app.get("/mcp", (req, res) => {
+  app.get("/mcp", (req, res, next) => {
     const accept = req.header("accept");
-    if (accept && !accept.includes("text/event-stream")) {
-      res.status(406).send("Only text/event-stream supported");
-      return;
+    if (!accept || !accept.includes("text/event-stream")) {
+      return next();
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -85,6 +84,25 @@ export function createServer(options?: ServerOptions): ServerComponents {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(createRateLimiter());
+
+  // CORS preflight for MCP requests (must be before auth middleware)
+  const corsAllowedHeaders = [
+    "authorization",
+    "content-type",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "accept"
+  ];
+  const mcpCors = cors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: corsAllowedHeaders,
+    exposedHeaders: ["Mcp-Session-Id"]
+  });
+  app.options("/mcp", mcpCors, (_req, res) => {
+    res.sendStatus(204);
+  });
+  app.use("/mcp", mcpCors);
 
   const eventBus = new EventBus();
   const github = options?.githubClient ?? new GitHubClient({ config });
@@ -120,7 +138,15 @@ export function createServer(options?: ServerOptions): ServerComponents {
       token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
       response_types_supported: ["code", "token"],
       code_challenge_methods_supported: ["S256"],
-      scopes_supported: ["mcp.codex.launch", "mcp.pr.review", "mcp.pr.merge", "mcp.pr.gate", "mcp.validation.trigger", "mcp.tools.list", "mcp.tools.call"]
+      scopes_supported: [
+        "mcp.codex.launch",
+        "mcp.pr.review",
+        "mcp.pr.merge",
+        "mcp.pr.gate",
+        "mcp.validation.trigger",
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ]
     });
   });
 
